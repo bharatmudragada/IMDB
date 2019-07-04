@@ -13,16 +13,16 @@ class Actor(models.Model):
         return self.name
 
 
-class MovieCast(models.Model):
-    movie = models.ForeignKey('Movie', on_delete=models.CASCADE)
-    cast = models.ForeignKey(Actor, on_delete=models.CASCADE)
-    role = models.CharField(max_length=50)
-
-
 class Movie(models.Model):
     title = models.CharField(max_length=100)
     release_date = models.DateField()
-    actors = models.ManyToManyField(MovieCast, related_name="movie_actors")
+    actors = models.ManyToManyField(Actor, through="MovieCast")
+
+
+class MovieCast(models.Model):
+    movie = models.ForeignKey(Movie, on_delete=models.CASCADE)
+    cast = models.ForeignKey(Actor, on_delete=models.CASCADE)
+    role = models.CharField(max_length=50)
 
 
 class MovieRating(models.Model):
@@ -36,7 +36,7 @@ class MovieRating(models.Model):
     no_of_ratings = models.IntegerField()
 
     def __str__(self):
-        return str(self.movie_id) + " " + str(self.avg_rating)
+        return str(self.movie_id)
 
 
 def get_rating_data():
@@ -68,10 +68,10 @@ def populateDb():
     Actor.objects.bulk_create([Actor(**vals) for vals in actors])
 
     Movie.objects.all().delete()
-    movies = [{"id": 1, "title": "A", "release_date": "2012-02-03"},
+    movies = [{"id": 1, "title": "A", "release_date": "2012-04-03"},
              {"id": 2, "title": "B", "release_date": "2014-03-01"},
              {"id": 3, "title": "C", "release_date": "2013-05-13"},
-             {"id": 4, "title": "D", "release_date": "2013-01-06"},
+             {"id": 4, "title": "D", "release_date": "2013-09-06"},
              {"id": 5, "title": "E", "release_date": "2014-03-15"},
              {"id": 6, "title": "F", "release_date": "2015-12-09"},
              {"id": 7, "title": "G", "release_date": "2012-09-03"},
@@ -115,18 +115,6 @@ def populateDb():
     MovieRating.objects.bulk_create([MovieRating(**vals) for vals in movierating])
 
 
-def get_top_10_movies_with_avg_rating():
-    rating_1_value = Q(rating_no=1).count()
-    top_10_movies = MovieRating.objects.all().annotate(avg_rating=rating_1_value).order_by('-avg_rating')[:10]
-    return top_10_movies
-
-
-def get_top_5_and_least_5_actors():
-    no_of_movies_acted = Actor.objects.annotate(no_of_movies_acted=Count('moviecast')).values_list('name', 'no_of_movies_acted')
-    top_5_actors = no_of_movies_acted.order_by('-no_of_movies_acted')[:5]
-    least_5_actors = no_of_movies_acted.order_by('no_of_movies_acted')[:5]
-    result = {"top": top_5_actors, "least": least_5_actors}
-    return result
 
 #
 # def get_5_yongest_and_oldest_movies():
