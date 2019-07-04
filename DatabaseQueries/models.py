@@ -2,6 +2,10 @@ from django.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db.models import F, Count, Q
 import random
+from django.db.models import Subquery, OuterRef, Sum, FloatField, Max, Count, IntegerField, Min, Avg
+from django.db.models.functions import Cast
+from django.db.models.functions import ExtractMonth
+from django.db.models import F, ExpressionWrapper, fields
 
 # Create your models here.
 class Actor(models.Model):
@@ -115,7 +119,49 @@ def populateDb():
     MovieRating.objects.bulk_create([MovieRating(**vals) for vals in movierating])
 
 
+def get_top_10_movies_with_avg_rating():
+    top_10_movies = MovieRating.objects.values('movie_id', 'movie__title').annotate(avg_rating=Cast(Sum(F('no_of_ratings') * F('rating_no') * 1.0) / Sum(F('no_of_ratings')), FloatField()))
+    return top_10_movies.values('movie__title','avg_rating').order_by('-avg_rating')[:10]
 
-#
-# def get_5_yongest_and_oldest_movies():
-#     movie_avg_age =
+
+def get_top_5_and_least_5_actors():
+    top_5_actors = Actor.objects.all().annotate(no_of_movies_acted=Count('moviecast')).order_by('-no_of_movies_acted').values('id')[:5]
+    least_5_actors = Actor.objects.all().annotate(no_of_movies_acted=Count('moviecast')).order_by('no_of_movies_acted').values('id')[:5]
+    no_of_movies_acted = Actor.objects.filter(Q(id__in=Subquery(top_5_actors)) | Q(id__in=Subquery(least_5_actors))).values_list('name')
+    return no_of_movies_acted
+
+
+def star_movies():
+    star_month = MovieCast.objects.filter(movie_id=OuterRef('movie_id')).values('cast__birth_date__month').annotate(month_count=Count("id")).values_list('cast__birth_date__month', flat=True).order_by('-month_count', 'cast__birth_date__month')
+    return MovieCast.objects.values('movie_id','cast__birth_date__month').annotate(month_count=Count("id"), star_month=Subquery(star_month[:1])).filter(movie__release_date__month=F('star_month'), cast__birth_date__month=F('star_month')).order_by('-month_count').values("movie_id","month_count")
+
+
+def get_actors_movie_count_released_in_their_birth_month():
+    return MovieCast.objects.annotate(release_month=ExtractMonth('movie__release_date'), birth_month=ExtractMonth('cast__birth_date')).filter(release_month=F('birth_month')).values("cast__name").annotate(movie_count=Count("movie"))
+
+
+def difference_between_1star_and_5star():
+    movie_difference = MovieRating.objects.filter(movie_id=OuterRef('movie_id')).values('movie_id').annotate(one_star=Sum('no_of_ratings', filter=Q(rating_no=1)), five_star=Sum('no_of_ratings', filter=Q(rating_no=5)), difference=F('one_star') - F('five_star')).values("difference")
+    return MovieCast.objects.values("movie_id").annotate(difference=Subquery(movie_difference)).values("cast_id").annotate(difference_sum=Sum('difference')).order_by("-difference_sum")
+
+
+def youngest_cast_age():
+    age = ExpressionWrapper(F('movie__release_date') - F('cast__birth_date'), output_field=fields.DurationField())
+    youngest_age = MovieCast.objects.filter(movie_id=OuterRef('id')).values('movie_id').annotate(age=age).order_by("age").values("age")[:1]
+    return Movie.objects.annotate(youngest_age=Subquery(youngest_age)).values("id","youngest_age").order_by('youngest_age')[:10]
+
+
+def year_in_which_most_cast_movies_released():
+    return MovieCast.objects.values('movie__release_date__year').annotate(year_count=Count('movie__release_date__year')).order_by('-year_count')[:1]
+
+
+def best_twin_stars():
+    return MovieCast.objects.filter(movie__moviecast__movie__id=F('movie_id')).annotate(cast_to_id=F('movie__moviecast__cast__id')).filter(cast_id__lt=F('cast_to_id')).values("cast_id","cast_to_id").annotate(twin_count=Count("id")).order_by("-twin_count")[:1]
+
+
+def youngest_and_oldest_movies_by_average_age_of_cast():
+    age = ExpressionWrapper(F('movie__release_date') - F('cast__birth_date'), output_field=fields.DurationField())
+    movie_avg_age = MovieCast.objects.values('movie_id').annotate(average_age=Avg(age))
+    youngest_movies = movie_avg_age.order_by('average_age').values('movie_id')[:5]
+    oldest_movies = movie_avg_age.order_by('-average_age').values('movie_id')[:5]
+    return MovieCast.objects.filter(Q(movie_id__in=(Subquery(youngest_movies))) | Q(movie_id__in=(Subquery(oldest_movies)))).values("movie__title").distinct()
